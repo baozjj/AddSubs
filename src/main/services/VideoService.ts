@@ -61,7 +61,7 @@ export class VideoService {
           .output(audioPath)
           .on("progress", (p) => onProgress?.(p.percent || 0))
           .on("end", () => resolve(audioPath))
-          .on("error", (err) => reject(new Error(`静音音频生成失败`)))
+          .on("error", () => reject(new Error(`静音音频生成失败`)))
           .run();
       } catch (error) {
         reject(error);

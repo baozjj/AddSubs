@@ -34,7 +34,7 @@ class VideoService {
       try {
         const info = await this.getVideoInfo(videoPath);
         const duration = info.format.duration || 0;
-        ffmpeg().input(`anullsrc=r=16000:cl=mono`).inputOptions(["-f lavfi", `-t ${duration}`]).outputOptions(["-acodec pcm_s16le", "-ac 1", "-ar 16000"]).output(audioPath).on("progress", (p) => onProgress?.(p.percent || 0)).on("end", () => resolve(audioPath)).on("error", (err) => reject(new Error(`静音音频生成失败`))).run();
+        ffmpeg().input(`anullsrc=r=16000:cl=mono`).inputOptions(["-f lavfi", `-t ${duration}`]).outputOptions(["-acodec pcm_s16le", "-ac 1", "-ar 16000"]).output(audioPath).on("progress", (p) => onProgress?.(p.percent || 0)).on("end", () => resolve(audioPath)).on("error", () => reject(new Error(`静音音频生成失败`))).run();
       } catch (error) {
         reject(error);
       }
