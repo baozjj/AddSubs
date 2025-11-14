@@ -105,7 +105,10 @@ const handleProcess = async () => {
   };
 
   try {
-    const result = await window.api.processVideo(selectedVideo.value, "mock");
+    const result = await window.api.processVideo(
+      selectedVideo.value,
+      "whisper"
+    );
 
     if (result.success && result.outputPath) {
       outputPath.value = result.outputPath;

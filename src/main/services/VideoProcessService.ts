@@ -26,7 +26,7 @@ export class VideoProcessService {
     options: VideoProcessOptions,
     onProgress?: (progress: ProcessProgress) => void
   ): Promise<string> {
-    const { videoPath, outputPath, aiServiceType = "mock" } = options;
+    const { videoPath, outputPath, aiServiceType = "whisper" } = options;
 
     let audioPath: string | null = null;
 

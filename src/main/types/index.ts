@@ -3,13 +3,13 @@
  */
 export interface SubtitleEntry {
   /** 字幕序号 */
-  index: number
+  index: number;
   /** 开始时间（秒） */
-  startTime: number
+  startTime: number;
   /** 结束时间（秒） */
-  endTime: number
+  endTime: number;
   /** 字幕文本内容 */
-  text: string
+  text: string;
 }
 
 /**
@@ -17,11 +17,11 @@ export interface SubtitleEntry {
  */
 export interface AIRecognitionResult {
   /** 是否成功 */
-  success: boolean
+  success: boolean;
   /** 字幕数据 */
-  subtitles: SubtitleEntry[]
+  subtitles: SubtitleEntry[];
   /** 错误信息（如果失败） */
-  error?: string
+  error?: string;
 }
 
 /**
@@ -29,13 +29,13 @@ export interface AIRecognitionResult {
  */
 export interface ProcessProgress {
   /** 当前步骤 */
-  step: 'extracting' | 'recognizing' | 'embedding' | 'completed' | 'error'
+  step: "extracting" | "recognizing" | "embedding" | "completed" | "error";
   /** 进度百分比 (0-100) */
-  percentage: number
+  percentage: number;
   /** 状态消息 */
-  message: string
+  message: string;
   /** 错误信息（如果有） */
-  error?: string
+  error?: string;
 }
 
 /**
@@ -43,10 +43,9 @@ export interface ProcessProgress {
  */
 export interface VideoProcessOptions {
   /** 视频文件路径 */
-  videoPath: string
+  videoPath: string;
   /** 输出文件路径（可选，默认为原文件名_with_subtitles） */
-  outputPath?: string
+  outputPath?: string;
   /** AI 服务类型 */
-  aiServiceType?: 'mock' | 'openai' | 'azure' | 'custom'
+  aiServiceType?: "mock" | "openai" | "azure" | "whisper" | "custom";
 }
-

@@ -53,8 +53,18 @@ export class SubtitleService {
     const srtContent = this.convertToSRT(subtitles)
     const srtPath = outputPath.replace(/\.[^.]+$/, '.srt')
 
+    console.log(`[SubtitleService] 字幕内容 (${subtitles.length} 条):`, srtContent)
+    
+    if (!srtContent || srtContent.trim().length === 0) {
+      throw new Error('字幕内容为空，无法生成 SRT 文件')
+    }
+
     await fs.writeFile(srtPath, srtContent, 'utf-8')
     console.log(`[SubtitleService] 字幕文件已保存: ${srtPath}`)
+
+    // 验证文件是否生成成功
+    const stats = await fs.stat(srtPath)
+    console.log(`[SubtitleService] 字幕文件大小: ${stats.size} bytes`)
 
     return srtPath
   }
@@ -72,39 +82,61 @@ export class SubtitleService {
     outputPath: string,
     onProgress?: (progress: number) => void
   ): Promise<string> {
-    return new Promise((resolve, reject) => {
-      console.log(`[SubtitleService] 开始烧录字幕`)
-      console.log(`[SubtitleService] 视频: ${videoPath}`)
-      console.log(`[SubtitleService] 字幕: ${subtitlePath}`)
-      console.log(`[SubtitleService] 输出: ${outputPath}`)
+    return new Promise(async (resolve, reject) => {
+      try {
+        console.log(`[SubtitleService] 开始烧录字幕`)
+        console.log(`[SubtitleService] 视频: ${videoPath}`)
+        console.log(`[SubtitleService] 字幕: ${subtitlePath}`)
+        console.log(`[SubtitleService] 输出: ${outputPath}`)
 
-      // 转义字幕路径中的特殊字符（Windows 路径处理）
-      const escapedSubtitlePath = subtitlePath.replace(/\\/g, '/').replace(/:/g, '\\:')
+        // 验证字幕文件存在且不为空
+        const stats = await fs.stat(subtitlePath)
+        if (stats.size === 0) {
+          throw new Error('字幕文件为空')
+        }
+        console.log(`[SubtitleService] 字幕文件大小: ${stats.size} bytes`)
 
-      ffmpeg(videoPath)
-        .outputOptions([
-          `-vf subtitles='${escapedSubtitlePath}':force_style='FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1'`
-        ])
-        .output(outputPath)
-        .on('start', (commandLine) => {
-          console.log(`[SubtitleService] FFmpeg 命令: ${commandLine}`)
-        })
-        .on('progress', (progress) => {
-          const percent = progress.percent || 0
-          console.log(`[SubtitleService] 烧录进度: ${percent.toFixed(2)}%`)
-          if (onProgress) {
-            onProgress(percent)
-          }
-        })
-        .on('end', () => {
-          console.log(`[SubtitleService] 字幕烧录完成: ${outputPath}`)
-          resolve(outputPath)
-        })
-        .on('error', (err) => {
-          console.error(`[SubtitleService] 字幕烧录失败:`, err)
-          reject(new Error(`字幕烧录失败: ${err.message}`))
-        })
-        .run()
+        // 读取字幕文件内容用于调试
+        const srtContent = await fs.readFile(subtitlePath, 'utf-8')
+        console.log(`[SubtitleService] 字幕内容预览:`, srtContent.substring(0, 200))
+
+        // 简化路径转义：直接使用绝对路径，只转义必要的字符
+        const escapedSubtitlePath = subtitlePath
+          .replace(/\\/g, '/')
+          .replace(/:/g, '\\\\:')
+
+        console.log(`[SubtitleService] 转义后的字幕路径: ${escapedSubtitlePath}`)
+
+        ffmpeg(videoPath)
+          .outputOptions([
+            `-vf`,
+            `subtitles=${escapedSubtitlePath}:force_style='FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1'`
+          ])
+          .output(outputPath)
+          .on('start', (commandLine) => {
+            console.log(`[SubtitleService] FFmpeg 命令: ${commandLine}`)
+          })
+          .on('progress', (progress) => {
+            const percent = progress.percent || 0
+            console.log(`[SubtitleService] 烧录进度: ${percent.toFixed(2)}%`)
+            if (onProgress) {
+              onProgress(percent)
+            }
+          })
+          .on('end', () => {
+            console.log(`[SubtitleService] 字幕烧录完成: ${outputPath}`)
+            resolve(outputPath)
+          })
+          .on('error', (err, _stdout, stderr) => {
+            console.error(`[SubtitleService] 字幕烧录失败:`, err)
+            console.error(`[SubtitleService] FFmpeg stderr:`, stderr)
+            reject(new Error(`字幕烧录失败: ${err.message}`))
+          })
+          .run()
+      } catch (error) {
+        console.error(`[SubtitleService] 验证失败:`, error)
+        reject(error)
+      }
     })
   }
 

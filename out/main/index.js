@@ -7,6 +7,7 @@ const ffmpegInstaller = require("@ffmpeg-installer/ffmpeg");
 const ffprobeInstaller = require("@ffprobe-installer/ffprobe");
 const fs = require("fs");
 const os = require("os");
+const whisperNode = require("whisper-node");
 const icon = path.join(__dirname, "../../resources/icon.png");
 Promise.all([
   fs.promises.chmod(ffmpegInstaller.path, 493).catch(() => {
@@ -108,8 +109,14 @@ ${entry.text}
   async saveSubtitleFile(subtitles, outputPath) {
     const srtContent = this.convertToSRT(subtitles);
     const srtPath = outputPath.replace(/\.[^.]+$/, ".srt");
+    console.log(`[SubtitleService] 字幕内容 (${subtitles.length} 条):`, srtContent);
+    if (!srtContent || srtContent.trim().length === 0) {
+      throw new Error("字幕内容为空，无法生成 SRT 文件");
+    }
     await fs.promises.writeFile(srtPath, srtContent, "utf-8");
     console.log(`[SubtitleService] 字幕文件已保存: ${srtPath}`);
+    const stats = await fs.promises.stat(srtPath);
+    console.log(`[SubtitleService] 字幕文件大小: ${stats.size} bytes`);
     return srtPath;
   }
   /**
@@ -120,29 +127,44 @@ ${entry.text}
    * @param onProgress 进度回调
    */
   async burnSubtitles(videoPath, subtitlePath, outputPath, onProgress) {
-    return new Promise((resolve, reject) => {
-      console.log(`[SubtitleService] 开始烧录字幕`);
-      console.log(`[SubtitleService] 视频: ${videoPath}`);
-      console.log(`[SubtitleService] 字幕: ${subtitlePath}`);
-      console.log(`[SubtitleService] 输出: ${outputPath}`);
-      const escapedSubtitlePath = subtitlePath.replace(/\\/g, "/").replace(/:/g, "\\:");
-      ffmpeg(videoPath).outputOptions([
-        `-vf subtitles='${escapedSubtitlePath}':force_style='FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1'`
-      ]).output(outputPath).on("start", (commandLine) => {
-        console.log(`[SubtitleService] FFmpeg 命令: ${commandLine}`);
-      }).on("progress", (progress) => {
-        const percent = progress.percent || 0;
-        console.log(`[SubtitleService] 烧录进度: ${percent.toFixed(2)}%`);
-        if (onProgress) {
-          onProgress(percent);
+    return new Promise(async (resolve, reject) => {
+      try {
+        console.log(`[SubtitleService] 开始烧录字幕`);
+        console.log(`[SubtitleService] 视频: ${videoPath}`);
+        console.log(`[SubtitleService] 字幕: ${subtitlePath}`);
+        console.log(`[SubtitleService] 输出: ${outputPath}`);
+        const stats = await fs.promises.stat(subtitlePath);
+        if (stats.size === 0) {
+          throw new Error("字幕文件为空");
         }
-      }).on("end", () => {
-        console.log(`[SubtitleService] 字幕烧录完成: ${outputPath}`);
-        resolve(outputPath);
-      }).on("error", (err) => {
-        console.error(`[SubtitleService] 字幕烧录失败:`, err);
-        reject(new Error(`字幕烧录失败: ${err.message}`));
-      }).run();
+        console.log(`[SubtitleService] 字幕文件大小: ${stats.size} bytes`);
+        const srtContent = await fs.promises.readFile(subtitlePath, "utf-8");
+        console.log(`[SubtitleService] 字幕内容预览:`, srtContent.substring(0, 200));
+        const escapedSubtitlePath = subtitlePath.replace(/\\/g, "/").replace(/:/g, "\\\\:");
+        console.log(`[SubtitleService] 转义后的字幕路径: ${escapedSubtitlePath}`);
+        ffmpeg(videoPath).outputOptions([
+          `-vf`,
+          `subtitles=${escapedSubtitlePath}:force_style='FontName=Arial,FontSize=24,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1'`
+        ]).output(outputPath).on("start", (commandLine) => {
+          console.log(`[SubtitleService] FFmpeg 命令: ${commandLine}`);
+        }).on("progress", (progress) => {
+          const percent = progress.percent || 0;
+          console.log(`[SubtitleService] 烧录进度: ${percent.toFixed(2)}%`);
+          if (onProgress) {
+            onProgress(percent);
+          }
+        }).on("end", () => {
+          console.log(`[SubtitleService] 字幕烧录完成: ${outputPath}`);
+          resolve(outputPath);
+        }).on("error", (err, _stdout, stderr) => {
+          console.error(`[SubtitleService] 字幕烧录失败:`, err);
+          console.error(`[SubtitleService] FFmpeg stderr:`, stderr);
+          reject(new Error(`字幕烧录失败: ${err.message}`));
+        }).run();
+      } catch (error) {
+        console.error(`[SubtitleService] 验证失败:`, error);
+        reject(error);
+      }
     });
   }
   /**
@@ -185,6 +207,116 @@ ${entry.text}
     const ext = path.extname(videoPath);
     const basename = path.basename(videoPath, ext);
     return path.join(dir, `${basename}${suffix}${ext}`);
+  }
+}
+class WhisperService {
+  options;
+  constructor(options = {}) {
+    this.options = {
+      modelName: options.modelName || "base",
+      whisperOptions: {
+        language: options.whisperOptions?.language || "auto",
+        gen_file_txt: false,
+        gen_file_subtitle: false,
+        gen_file_vtt: false,
+        word_timestamps: true,
+        ...options.whisperOptions
+      }
+    };
+  }
+  async recognizeAudio(audioPath) {
+    try {
+      console.log(`[WhisperService] 开始识别音频: ${audioPath}`);
+      console.log(`[WhisperService] 使用模型: ${this.options.modelName}`);
+      await fs.promises.access(audioPath);
+      const options = {
+        modelName: this.options.modelName,
+        whisperOptions: this.options.whisperOptions
+      };
+      console.log(
+        `[WhisperService] 识别选项:`,
+        JSON.stringify(options, null, 2)
+      );
+      const result = await whisperNode.whisper(audioPath, options);
+      console.log(
+        `[WhisperService] 原始结果:`,
+        JSON.stringify(result, null, 2)
+      );
+      const subtitles = this.parseResult(result);
+      console.log(`[WhisperService] 成功识别 ${subtitles.length} 条文本`);
+      console.log(
+        `[WhisperService] 字幕内容:`,
+        JSON.stringify(subtitles, null, 2)
+      );
+      return { success: true, subtitles };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "未知错误";
+      console.error(`[WhisperService] 识别失败:`, error);
+      return {
+        success: false,
+        subtitles: [],
+        error: `Whisper 识别失败: ${errorMessage}`
+      };
+    }
+  }
+  parseResult(result) {
+    const subtitles = [];
+    if (Array.isArray(result)) {
+      result.forEach((item, index) => {
+        const startTime = this.parseTimestamp(item.start) || 0;
+        const endTime = this.parseTimestamp(item.end) || 0;
+        const text = item.speech?.trim();
+        if (text) {
+          subtitles.push({
+            index: index + 1,
+            startTime,
+            endTime,
+            text
+          });
+        }
+      });
+    } else if (result && typeof result === "object") {
+      const startTime = this.parseTimestamp(result.start) || 0;
+      const endTime = this.parseTimestamp(result.end) || 0;
+      const text = result.speech?.trim();
+      if (text) {
+        subtitles.push({
+          index: 1,
+          startTime,
+          endTime,
+          text
+        });
+      }
+    }
+    return subtitles;
+  }
+  /**
+   * 将时间戳格式 "HH:MM:SS.mmm" 转换为秒数
+   */
+  parseTimestamp(timestamp) {
+    if (!timestamp) return 0;
+    const parts = timestamp.split(":");
+    if (parts.length !== 3) return 0;
+    try {
+      const hours = parseInt(parts[0], 10);
+      const minutes = parseInt(parts[1], 10);
+      const secondsAndMs = parts[2].split(".");
+      const seconds = parseInt(secondsAndMs[0], 10);
+      const milliseconds = parseInt(
+        (secondsAndMs[1] || "0").padEnd(3, "0"),
+        10
+      );
+      return hours * 3600 + minutes * 60 + seconds + milliseconds / 1e3;
+    } catch (error) {
+      console.error(`[WhisperService] 时间戳解析失败: ${timestamp}`, error);
+      return 0;
+    }
+  }
+  async isAvailable() {
+    return true;
+  }
+  static getSupportedModels() {
+    return ["tiny.en", "base.en", "small.en", "medium.en", "large-v3"];
   }
 }
 class AIService {
@@ -261,6 +393,35 @@ class OpenAIWhisperService extends AIService {
     return !!this.apiKey;
   }
 }
+class WhisperNodeService extends AIService {
+  whisperService;
+  constructor() {
+    super();
+    this.whisperService = new WhisperService({
+      modelName: "base",
+      whisperOptions: {
+        language: "auto",
+        word_timestamps: true
+      }
+    });
+  }
+  async recognizeAudio(audioPath) {
+    try {
+      return await this.whisperService.recognizeAudio(audioPath);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "未知错误";
+      console.error("[WhisperNodeService] 识别失败:", error);
+      return {
+        success: false,
+        subtitles: [],
+        error: `Whisper 识别失败: ${errorMessage}`
+      };
+    }
+  }
+  async isAvailable() {
+    return await this.whisperService.isAvailable();
+  }
+}
 class AIServiceFactory {
   /**
    * 创建 AI 服务实例
@@ -271,6 +432,8 @@ class AIServiceFactory {
     switch (type) {
       case "openai":
         return new OpenAIWhisperService(config?.apiKey || "");
+      case "whisper":
+        return new WhisperNodeService();
       case "mock":
       default:
         return new MockAIService();
@@ -290,7 +453,7 @@ class VideoProcessService {
    * @param onProgress 进度回调
    */
   async processVideo(options, onProgress) {
-    const { videoPath, outputPath, aiServiceType = "mock" } = options;
+    const { videoPath, outputPath, aiServiceType = "whisper" } = options;
     let audioPath = null;
     try {
       onProgress?.({
